@@ -1,0 +1,17 @@
+Criação de aplicativo de para Lanchonete
+
+O Aplicativo séra elaborado para o lado empresa, não para ser publicado para os clientes.
+
+Porque do aplicativo?
+    Para melhor oraganização da loja deixando o dia a dia mas dinamico e com maior rapidez, por exemplo quando e gerado um pedido. Atualmente todos são feitos a mão atrasando assim o processo até o final.
+
+Metodos para solucionar:
+    Criando um banco de dados para que possa ser manipulado valores dos produtos vendidos.
+    Automatizar a seleção dos produtos, colocando autosoma, quantidade e atualizando valores de forma dinamica.
+
+Cronologia do aplicativo:
+1 - Criação da tela inicial.
+2 - Botão para criar um novo pedido.
+3 - Exibir um menu de seleção dos cardapios  - Porções - Meia Porções - Pizzas - Beirutes - Lanches -  Combo de Lanches - Bebias - Adicionais para pedidos
+4 - ** TODOS OS MENUS DO CARDAPIO TEM QUE TERM UM BOTÃO DE VOLTA PARA TELA inicial
+5 - Botão para finalizar pedido.
