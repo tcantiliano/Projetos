@@ -1,0 +1,233 @@
+import kivy
+from kivy.app import App
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.label import Label
+from kivy.uix.button import Button
+from kivy.uix.textinput import TextInput
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.popup import Popup
+from kivy.properties import DictProperty, StringProperty, ObjectProperty, NumericProperty
+from kivy.uix.spinner import Spinner
+from kivy.utils import platform
+import webbrowser
+import urllib.parse
+from datetime import datetime
+
+kivy.require('2.0.0')
+
+class FinalizarPedidoPopup(Popup):
+    nome_cliente_input = ObjectProperty()
+    frete_input = ObjectProperty()
+    forma_pagamento_spinner = ObjectProperty()
+    lanchonete_app = ObjectProperty()
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def finalizar(self):
+        nome_cliente = self.nome_cliente_input.text
+        forma_pagamento = self.forma_pagamento_spinner.text
+        valor_frete_str = self.frete_input.text
+        if not nome_cliente:
+            self.ids.error_label.text = "Por favor, digite o nome do cliente."
+            return
+        if not valor_frete_str:
+            self.ids.error_label.text = "Por favor, digite o valor do frete (pode ser 0)."
+            return
+        try:
+            valor_frete = float(valor_frete_str)
+            self.lanchonete_app.finalizar_pedido_com_detalhes(nome_cliente, valor_frete, forma_pagamento)
+            self.dismiss()
+        except ValueError:
+            self.ids.error_label.text = "Valor do frete inválido. Digite um número."
+
+class LanchoneteApp(App):
+    cardapio = DictProperty({
+        "Hambúrguer": 12.50,
+        "Batata Frita": 7.00,
+        "Refrigerante": 5.00,
+        "Pizza Calabresa": 35.00,
+        "Milkshake de Chocolate": 10.00,
+    })
+    pedido = DictProperty({})
+    total_pedido_itens = NumericProperty(0.00)
+    valor_frete = NumericProperty(0.00)
+    total_final = StringProperty("0.00")
+    whatsapp_link = StringProperty("")
+
+    def build(self):
+        self.root = BoxLayout(orientation='horizontal', padding=10)
+
+        # Layout do Cardápio
+        cardapio_layout = BoxLayout(orientation='vertical', size_hint_x=0.5)
+        cardapio_label = Label(text="Cardápio", font_size=20, bold=True, size_hint_y=None, height=30)
+        cardapio_layout.add_widget(cardapio_label)
+
+        self.cardapio_grid = GridLayout(cols=1, spacing=5, size_hint_y=None)
+        self.cardapio_grid.bind(minimum_height=self.cardapio_grid.setter('height'))
+        self.atualizar_cardapio_ui()
+
+        cardapio_scroll = ScrollView()
+        cardapio_scroll.add_widget(self.cardapio_grid)
+        cardapio_layout.add_widget(cardapio_scroll)
+
+        self.root.add_widget(cardapio_layout)
+
+        # Layout do Pedido
+        pedido_layout = BoxLayout(orientation='vertical', size_hint_x=0.5, padding=(10, 0, 0, 0))
+        pedido_label = Label(text="Pedido", font_size=20, bold=True, size_hint_y=None, height=30)
+        pedido_layout.add_widget(pedido_label)
+
+        self.pedido_grid = BoxLayout(orientation='vertical', spacing=5, size_hint_y=None)
+        self.pedido_grid.bind(minimum_height=self.pedido_grid.setter('height'))
+        pedido_scroll = ScrollView()
+        pedido_scroll.add_widget(self.pedido_grid)
+        pedido_layout.add_widget(pedido_scroll)
+
+        total_final_label = Label(text="Total: R$ ", font_size=18, bold=True, size_hint_y=None, height=30)
+        self.total_final_value_label = Label(text=self.total_final, font_size=18, bold=True, size_hint_y=None, height=30)
+        total_final_layout = BoxLayout(orientation='horizontal')
+        total_final_layout.add_widget(total_final_label)
+        total_final_layout.add_widget(self.total_final_value_label)
+        pedido_layout.add_widget(total_final_layout)
+
+        finalizar_pedido_btn = Button(text="Finalizar Pedido", on_press=self.abrir_popup_finalizar_pedido, size_hint_y=None, height=50)
+        pedido_layout.add_widget(finalizar_pedido_btn)
+
+        self.compartilhar_label = Label(text="", color=(0, 0, 1, 1), underline=True, font_size=16, size_hint_y=None, height=30)
+        self.compartilhar_label.bind(on_touch_down=self.abrir_link_whatsapp)
+        pedido_layout.add_widget(self.compartilhar_label)
+
+        self.root.add_widget(pedido_layout)
+
+        return self.root
+
+    def atualizar_cardapio_ui(self):
+        self.cardapio_grid.clear_widgets()
+        for item, preco in self.cardapio.items():
+            item_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=30)
+            item_label = Label(text=f"{item}: R$ {preco:.2f}")
+            add_button = Button(text="+", size_hint_x=0.2)
+            add_button.bind(on_press=lambda instance, item_nome=item: self.adicionar_ao_pedido(item_nome))
+            item_layout.add_widget(item_label)
+            item_layout.add_widget(add_button)
+            self.cardapio_grid.add_widget(item_layout)
+
+    def adicionar_ao_pedido(self, item):
+        if item in self.pedido:
+            self.pedido[item] += 1
+        else:
+            self.pedido[item] = 1
+        self.atualizar_pedido_ui()
+
+    def atualizar_pedido_ui(self):
+        self.pedido_grid.clear_widgets()
+        total_pedido = 0
+        for item, quantidade in self.pedido.items():
+            preco = self.cardapio.get(item, 0)
+            subtotal = preco * quantidade
+
+            # Criando um BoxLayout para cada item do pedido
+            item_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=30)
+
+            item_label = Label(text=f"{item} x {quantidade}")
+            subtotal_label = Label(text=f"R$ {subtotal:.2f}", size_hint_x=0.3)
+            remove_button = Button(text="-", size_hint_x=0.15)
+            remove_button.bind(on_press=lambda instance, item_nome=item: self.remover_do_pedido(item_nome))
+
+            item_layout.add_widget(item_label)
+            item_layout.add_widget(subtotal_label)
+            item_layout.add_widget(remove_button)
+
+            self.pedido_grid.add_widget(item_layout)
+            total_pedido += subtotal
+
+        self.total_pedido_itens = total_pedido
+        self.atualizar_total_final()
+
+    def remover_do_pedido(self, item):
+        if item in self.pedido:
+            self.pedido[item] -= 1
+            if self.pedido[item] == 0:
+                del self.pedido[item]
+            self.atualizar_pedido_ui()
+
+    def abrir_popup_finalizar_pedido(self, instance):
+        conteudo = BoxLayout(orientation='vertical', spacing=10)
+        nome_cliente_input = TextInput(hint_text="Nome do Cliente")
+        frete_input = TextInput(hint_text="Valor do Frete (obrigatório, pode ser 0)")
+        forma_pagamento_label = Label(text="Forma de Pagamento:")
+        forma_pagamento_spinner = Spinner(
+            text='Dinheiro',
+            values=('Dinheiro', 'Cartão de Crédito', 'Cartão de Débito', 'Pix')
+        )
+        erro_label = Label(text="", color=(1, 0, 0, 1))
+        botoes_layout = BoxLayout(orientation='horizontal', spacing=10)
+        confirmar_btn = Button(text="Confirmar", on_press=lambda btn: finalizar_popup.finalizar())
+        cancelar_btn = Button(text="Cancelar", on_press=lambda btn: finalizar_popup.dismiss())
+        botoes_layout.add_widget(confirmar_btn)
+        botoes_layout.add_widget(cancelar_btn)
+        conteudo.add_widget(nome_cliente_input)
+        conteudo.add_widget(frete_input)
+        conteudo.add_widget(forma_pagamento_label)
+        conteudo.add_widget(forma_pagamento_spinner)
+        conteudo.add_widget(erro_label)
+        conteudo.add_widget(botoes_layout)
+        finalizar_popup = FinalizarPedidoPopup(
+            title="Detalhes do Pedido",
+            content=conteudo,
+            size_hint=(None, None),
+            size=(400, 350),
+            lanchonete_app=self
+        )
+        finalizar_popup.nome_cliente_input = nome_cliente_input
+        finalizar_popup.frete_input = frete_input
+        finalizar_popup.forma_pagamento_spinner = forma_pagamento_spinner
+        finalizar_popup.open()
+
+    def finalizar_pedido_com_detalhes(self, nome_cliente, valor_frete, forma_pagamento):
+        if self.pedido:
+            data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            pedido_str = f"--- Pedido Finalizado ---\n"
+            pedido_str += f"Cliente: {nome_cliente}\n"
+            pedido_str += f"Data: {data_hora_atual}\n"
+            pedido_str += f"Forma de Pagamento: {forma_pagamento}\n"
+            for item, quantidade in self.pedido.items():
+                preco = self.cardapio.get(item, 0)
+                subtotal = preco * quantidade
+                pedido_str += f"{item}: {quantidade} x R$ {preco:.2f} = R$ {subtotal:.2f}\n"
+            if valor_frete > 0:
+                pedido_str += f"Frete: R$ {valor_frete:.2f}\n"
+            else:
+                pedido_str += "Frete: Não foi cobrado frete\n"
+            pedido_str += f"Total: R$ {self.total_pedido_itens + valor_frete:.2f}"
+            self.mostrar_mensagem("Pedido", pedido_str)
+            self.valor_frete = valor_frete
+            self.atualizar_total_final()
+            self.gerar_link_whatsapp(pedido_str)
+            self.pedido.clear()
+            self.total_pedido_itens = 0.00
+            self.atualizar_pedido_ui()
+        else:
+            self.mostrar_mensagem("Pedido", "Seu carrinho está vazio.")
+
+    def atualizar_total_final(self):
+        self.total_final = f"{self.total_pedido_itens + self.valor_frete:.2f}"
+        self.total_final_value_label.text = self.total_final
+
+    def gerar_link_whatsapp(self, mensagem):
+        mensagem_codificada = urllib.parse.quote(mensagem)
+        self.whatsapp_link = f"https://wa.me/?text={mensagem_codificada}"
+        self.compartilhar_label.text = "Compartilhar Pedido"
+
+    def abrir_link_whatsapp(self, instance, touch):
+        if self.compartilhar_label.collide_point(*touch.pos) and self.whatsapp_link:
+            webbrowser.open(self.whatsapp_link)
+
+    def mostrar_mensagem(self, titulo, mensagem):
+        popup = Popup(title=titulo, content=Label(text=mensagem), size_hint=(None, None), size=(400, 200))
+        popup.open()
+
+if __name__ == '__main__':
+    LanchoneteApp().run()
